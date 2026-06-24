@@ -1,11 +1,14 @@
 //! Unified parser interface for reasoning and tool-call deltas.
 
 mod combined;
+mod gemma4;
 
 use thiserror::Error;
+use thiserror_ext::Macro;
 use vllm_tokenizer::DynTokenizer;
 
 pub use combined::CombinedParser;
+pub use gemma4::Gemma4UnifiedParser;
 
 use crate::reasoning::ReasoningError;
 use crate::tool::{
@@ -50,14 +53,17 @@ impl UnifiedParserOutput {
         self.events.push(UnifiedParserEvent::Reasoning(delta));
     }
 
+    /// Append one tool-call event.
+    pub fn push_call(&mut self, call: ToolCallDelta) {
+        self.events.push(UnifiedParserEvent::ToolCall(call));
+    }
+
     /// Append parsed tool parser output as unified events.
     pub fn append_tool_output(&mut self, output: ToolParserOutput) {
         for event in output.events {
             match event {
                 ToolParserEvent::Text(text) => self.push_text(text),
-                ToolParserEvent::ToolCall(call) => {
-                    self.events.push(UnifiedParserEvent::ToolCall(call));
-                }
+                ToolParserEvent::ToolCall(call) => self.push_call(call),
             }
         }
     }
@@ -110,10 +116,15 @@ pub trait UnifiedParser: Send {
 }
 
 /// Errors produced while creating or running unified parsers.
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Macro)]
+#[thiserror_ext(macro(path = "crate::unified", mangle))]
 pub enum UnifiedParserError {
     #[error("combined parser is constructed from split parser instances")]
     CombinedParserConstructor,
+    #[error("tokenizer is missing unified parser token `{token}`")]
+    MissingToken { token: String },
+    #[error("unified parser parsing failed: {message}")]
+    ParsingFailed { message: String },
     #[error(transparent)]
     Reasoning(#[from] ReasoningError),
     #[error(transparent)]
